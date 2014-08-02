@@ -263,7 +263,7 @@ def parse_arguments():
                         metavar='<str>',
                         type=str,
                         required=False,
-                        default='/home/ed/Programs/art_bin_VanillaIceCream/art_illumina',
+                        default='lib/art_bin_VanillaIceCream/art_illumina',
                         help="Location of ART Illumina binary file")
     # parser.add_argument('--numCPU',
     #                     metavar='<int>',
