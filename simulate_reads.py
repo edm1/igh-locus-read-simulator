@@ -6,10 +6,12 @@
 
 import argparse
 from src.bio_file_parsers import fasta_parser
+from src.bio_file_parsers import write_fasta
 from src.bio_file_parsers import reverse_complement
 import re
 import sys
 import numpy
+import subprocess
 
 def main():
 
@@ -27,16 +29,56 @@ def main():
     germ_seqs['D'] = load_germline_seqs(args.Dgenes)
     germ_seqs['J'] = load_germline_seqs(args.Jgenes, is_j=True)
 
-    a = Clone(germ_seqs, rev_comp=True)
-    for k, v in vars(a).iteritems():
-        print k, v
-    print len(a.seq)
+    # Create the fasta file of simulated reads
+    fasta_file = args.OutPrefix + '.fasta'
+    with open(fasta_file, 'w') as out_h:
+        cluster_num = 1
+        remaining_reads = args.NumReads
+
+        # Do clonal reads
+        for prop in args.Proportions:
+            # Calc number of reads to make
+            clus_num_reads = int((float(prop)/100) * args.NumReads)
+            remaining_reads = remaining_reads - clus_num_reads
+            # Make the clone
+            clone = Clone(germ_seqs, cluster_num, rev_comp=True)
+            # Write it to the fasta file multiple times
+            for i in range(clus_num_reads):
+                title = 'Cluster_{0}_{1}'.format(cluster_num, i)
+                write_fasta(out_h, title, clone.seq)
+            cluster_num += 1
+
+        # Fill remaining with unique reads
+        for i in range(remaining_reads):
+            clone = Clone(germ_seqs, cluster_num, rev_comp=True)
+            title = 'Cluster_{0}_{1}'.format(cluster_num, 0)
+            write_fasta(out_h, title, clone.seq)
+            cluster_num += 1
+
+    # Run ART to simulate MiSeq reads
+    fastq_file = args.OutPrefix + '.fastq'
+    cmd = [args.ARTbin,
+           '-amp',
+           '-na',
+        #    '-sam',
+           '-f 1',
+           '-l {0}'.format(args.TotalReadLen),
+           '-i {0}'.format(fasta_file),
+           '-o {0}'.format(args.OutPrefix)
+           ]
+    cmd = ' '.join(cmd)
+    subprocess.call(cmd, shell=True)
+
+    print cmd
+
 
 # A clone is a somatic recombination of the VDJ sequences
 class Clone:
-    def __init__(self, germ_seqs, rev_comp=False):
+    def __init__(self, germ_seqs, title, rev_comp=False):
         """ Generates random recombination and sequence
         """
+        self.title = title
+        self.rev_comp = rev_comp
         # Select random V, D and J
         self.J = numpy.random.choice(germ_seqs['J'].keys())
         self.D = numpy.random.choice(germ_seqs['D'].keys())
@@ -46,35 +88,61 @@ class Clone:
         self.D3del = numpy.random.poisson(args.D3del)
         self.D5del = numpy.random.poisson(args.D5del)
         self.V3del = numpy.random.poisson(args.V3del)
-        # # Generate insertion sizes from poisson distribution
+        # Generate insertion sizes from poisson distribution
         self.VDins = numpy.random.poisson(args.VDins)
         self.DJins = numpy.random.poisson(args.DJins)
 
         # Create the sequence
         self.make_seq(germ_seqs, rev_comp)
+        self.write_log()
 
     def make_seq(self, germ_seqs, rev_comp):
 
         # Start with J sequence with 5' deleted
         seq = germ_seqs['J'][self.J][self.J5del:]
         # Add DJ random insert to 5'
-        seq = gen_random_insertion(self.DJins) + seq
+        ins = gen_random_insertion(self.DJins)
+        seq =  ins + seq
         # Add D seq with deletions at both ends
         d_seq = germ_seqs['D'][self.D]
         seq = d_seq[self.D5del:len(d_seq)-self.D3del] + seq
         # Add VD random insert to 5'
-        seq = gen_random_insertion(self.VDins) + seq
+        ins = gen_random_insertion(self.VDins)
+        seq = ins + seq
         # Add V with 3' del
         v_seq = germ_seqs['V'][self.V]
         v_seq = v_seq[:len(v_seq)-self.V3del]
         seq = v_seq + seq
+        # ART requires the seq to be at least the max length
+        if len(seq) < args.TotalReadLen:
+            ins = gen_random_insertion(args.TotalReadLen - len(seq) + 1)
+            seq = ins + seq
         # Clip the sequence to total read length
-        seq = seq[len(seq)-args.TotalReadLen:]
+        if not len(seq) == args.TotalReadLen:
+            seq = seq[len(seq)-args.TotalReadLen-1:]
         # Save to self
         if rev_comp == True:
             self.seq = reverse_complement(seq)
         else:
             self.seq = seq
+
+    def write_log(self):
+        log_file = args.OutPrefix + '.log'
+        with open(log_file, 'a') as out_h:
+            out = ['> Cluster {0}'.format(self.title),
+                   self.seq,
+                   'V gene: {0}'.format(self.V),
+                   'D gene: {0}'.format(self.D),
+                   'J gene: {0}'.format(self.J),
+                   "V3' del: {0}".format(self.V3del),
+                   "VD ins: {0}".format(self.VDins),
+                   "D5' del: {0}".format(self.D5del),
+                   "D3' del: {0}".format(self.D3del),
+                   "DJ ins: {0}".format(self.DJins),
+                   "J5' del: {0}".format(self.J5del),
+                   "Reverse complement: {0}".format(self.rev_comp)
+                  ]
+            out_h.write('\n'.join(out) + '\n\n')
 
 def gen_random_insertion(length):
     bases = ['A', 'T', 'G', 'C']
@@ -123,16 +191,6 @@ def parse_arguments():
                         type=str,
                         required=True,
                         help='Output prefix for simulated fasta, fastq and log')
-    # parser.add_argument('--Lane',
-    #                     metavar='<int>',
-    #                     type=int,
-    #                     required=True,
-    #                     help='Lane number')
-    # parser.add_argument('--ReadStructure',
-    #                     metavar='<str>',
-    #                     type=str,
-    #                     required=True,
-    #                     help='Description of the logical structure of clusters in an Illumina Run, e.g. 151T8B8B')
 
     # Optional arguments
     parser.add_argument('--NumReads',
@@ -199,8 +257,14 @@ def parse_arguments():
                         metavar='<int>',
                         type=int,
                         required=False,
-                        default=300,
-                        help="Total read length, surplus bases will be clipped from V 5'. (300)")
+                        default=250,
+                        help="Total read length, surplus bases will be clipped from V 5'. Max 250. (250)")
+    parser.add_argument('--ARTbin',
+                        metavar='<str>',
+                        type=str,
+                        required=False,
+                        default='/home/ed/Programs/art_bin_VanillaIceCream/art_illumina',
+                        help="Location of ART Illumina binary file")
     # parser.add_argument('--numCPU',
     #                     metavar='<int>',
     #                     type=int,
