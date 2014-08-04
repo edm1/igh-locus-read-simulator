@@ -209,7 +209,7 @@ def parse_arguments():
                         type=int,
                         nargs='+',
                         help=('Percentage of reads that will make up each' +
-                              'clonal group. Must sum to <100. e.g. 20 10 5'))
+                              ' clonal group. Must sum to <100. e.g. 20 10 5'))
     parser.add_argument('--OutPrefix',
                         metavar='<str>',
                         type=str,
