@@ -12,6 +12,7 @@ import re
 import sys
 import numpy
 import subprocess
+import os
 
 def main():
 
@@ -19,9 +20,18 @@ def main():
     global args
     args = parse_arguments()
 
+    # Constant
+    global extra_bp
+    extra_bp = 10
+
     # Check proportions sum to less than 100
     if sum(args.Proportions) >= 100:
         sys.exit('Proportions must sum to <100.')
+
+    # Delete log file if it exists
+    log_file = args.OutPrefix + '.log'
+    if os.path.exists(log_file):
+        os.remove(log_file)
 
     # Load germline sequences
     germ_seqs = {}
@@ -41,7 +51,8 @@ def main():
             clus_num_reads = int((float(prop)/100) * args.NumReads)
             remaining_reads = remaining_reads - clus_num_reads
             # Make the clone
-            clone = Clone(germ_seqs, cluster_num, rev_comp=True)
+            clone = return_clone(cluster_num, germ_seqs, True)
+            # clone = Clone(germ_seqs, cluster_num, rev_comp=True)
             # Write it to the fasta file multiple times
             for i in range(clus_num_reads):
                 title = 'Cluster_{0}_{1}'.format(cluster_num, i)
@@ -50,7 +61,8 @@ def main():
 
         # Fill remaining with unique reads
         for i in range(remaining_reads):
-            clone = Clone(germ_seqs, cluster_num, rev_comp=True)
+            clone = return_clone(cluster_num, germ_seqs, True)
+            # clone = Clone(germ_seqs, cluster_num, rev_comp=True)
             title = 'Cluster_{0}_{1}'.format(cluster_num, 0)
             write_fasta(out_h, title, clone.seq)
             cluster_num += 1
@@ -71,6 +83,19 @@ def main():
 
     print cmd
 
+def return_clone(title, germ_seqs, rev_comp, attempts=30):
+    """ Make a new instance of a clone and checks that the sequence is the
+        correct length, else ART will crash.
+    """
+    c = 0
+    while True:
+        c += 1
+        new_clone = Clone(germ_seqs, title, rev_comp)
+        if len(new_clone.seq) == args.TotalReadLen + extra_bp:
+            break
+        elif c == attempts:
+            sys.exit('Error: Could not create clone of specified read lenght.')
+    return new_clone
 
 # A clone is a somatic recombination of the VDJ sequences
 class Clone:
@@ -94,6 +119,8 @@ class Clone:
 
         # Create the sequence
         self.make_seq(germ_seqs, rev_comp)
+
+        # Write the log
         self.write_log()
 
     def make_seq(self, germ_seqs, rev_comp):
@@ -113,13 +140,10 @@ class Clone:
         v_seq = germ_seqs['V'][self.V]
         v_seq = v_seq[:len(v_seq)-self.V3del]
         seq = v_seq + seq
-        # ART requires the seq to be at least the max length
-        if len(seq) < args.TotalReadLen:
-            ins = gen_random_insertion(args.TotalReadLen - len(seq) + 1)
-            seq = ins + seq
         # Clip the sequence to total read length
-        if not len(seq) == args.TotalReadLen:
-            seq = seq[len(seq)-args.TotalReadLen-1:]
+        # need to add extra bp or ART adds deletions and crashes
+        if len(seq) > args.TotalReadLen + extra_bp:
+            seq = seq[len(seq) - args.TotalReadLen - extra_bp:]
         # Save to self
         if rev_comp == True:
             self.seq = reverse_complement(seq)
