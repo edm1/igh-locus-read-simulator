@@ -55,7 +55,7 @@ def main():
             # clone = Clone(germ_seqs, cluster_num, rev_comp=True)
             # Write it to the fasta file multiple times
             for i in range(clus_num_reads):
-                title = 'Cluster_{0}_{1}'.format(cluster_num, i)
+                title = 'Clone_{0}_{1}'.format(cluster_num, i)
                 write_fasta(out_h, title, clone.seq)
             cluster_num += 1
 
@@ -63,7 +63,7 @@ def main():
         for i in range(remaining_reads):
             clone = return_clone(cluster_num, germ_seqs, True)
             # clone = Clone(germ_seqs, cluster_num, rev_comp=True)
-            title = 'Cluster_{0}_{1}'.format(cluster_num, 0)
+            title = 'Clone_{0}_{1}'.format(cluster_num, 0)
             write_fasta(out_h, title, clone.seq)
             cluster_num += 1
 
@@ -153,7 +153,7 @@ class Clone:
     def write_log(self):
         log_file = args.OutPrefix + '.log'
         with open(log_file, 'a') as out_h:
-            out = ['> Cluster {0}'.format(self.title),
+            out = ['> Clone {0}'.format(self.title),
                    self.seq,
                    'V gene: {0}'.format(self.V),
                    'D gene: {0}'.format(self.D),
